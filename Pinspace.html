@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pinspace — Wallpaper Gallery</title>
+<style>
+:root{--bg:#f7f7f7;--ink:#202124;--muted:#70757a;--card:#fff;--accent:#e60023}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif}
+header{position:sticky;top:0;z-index:5;background:#fff;display:flex;align-items:center;gap:14px;padding:12px 18px;box-shadow:0 1px 8px #00000012}
+.logo{font-weight:800;font-size:23px;color:var(--accent);white-space:nowrap}
+.search{flex:1;min-width:90px;border:0;background:#efefef;border-radius:25px;padding:13px 16px;font-size:15px;outline:none}
+button,.upload-label{border:0;border-radius:22px;padding:11px 15px;font-weight:700;cursor:pointer;font-size:14px}
+.upload-label{background:#202124;color:white;white-space:nowrap}
+#uploadInput{display:none}
+.categories{display:flex;gap:8px;overflow-x:auto;padding:14px 16px 4px}
+.category{background:#e9e9e9;white-space:nowrap}
+.category.active{background:#202124;color:#fff}
+.grid{columns:2;column-gap:12px;padding:14px}
+@media(min-width:600px){.grid{columns:3;column-gap:16px;padding:18px}}
+@media(min-width:900px){.grid{columns:4}}
+@media(min-width:1200px){.grid{columns:5}}
+.card{break-inside:avoid;margin:0 0 14px;background:var(--card);border-radius:16px;overflow:hidden;box-shadow:0 1px 5px #0000000c}
+.image-wrap{position:relative;cursor:zoom-in;background:#e5e5e5;min-height:120px}
+.card img{display:block;width:100%;height:auto;min-height:120px;object-fit:cover}
+.card img.broken{height:190px;object-fit:cover}
+.card-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:9px}
+.card-title{font-size:13px;font-weight:700;padding:0 10px 7px;overflow-wrap:anywhere}
+.action{padding:8px 10px;background:#efefef;font-size:12px}
+.action.primary{background:var(--accent);color:#fff}
+.action.delete{background:#ffe5e8;color:#a40018}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+/* Fullscreen image viewer */
+.viewer{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;padding:62px 16px 22px}
+.viewer.open{display:flex}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain;border-radius:5px;box-shadow:0 8px 35px #0008}
+.viewer-top{position:absolute;top:12px;left:12px;right:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.viewer-title{color:#fff;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewer-controls{display:flex;gap:8px;flex-shrink:0}
+.viewer-btn{background:#fff;color:#222;padding:10px 14px}
+.viewer-close{background:var(--accent);color:white;font-size:20px;line-height:1;padding:9px 13px}
+.viewer-hint{position:absolute;bottom:12px;color:#ddd;font-size:12px;text-align:center}
+
+.editor{position:fixed;inset:0;z-index:30;background:#fff;display:none;flex-direction:column}
+.editor.open{display:flex}
+.editor-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #eee}
+.editor-head strong{font-size:17px}
+.editor-body{display:flex;flex:1;min-height:0;align-items:center;justify-content:center;background:#171717;overflow:hidden;position:relative}
+#editCanvas{max-width:100%;max-height:100%;touch-action:none;object-fit:contain}
+.editor-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;background:#fff;border-top:1px solid #eee}
+.editor-tools label{font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px}
+.editor-tools input[type=range]{width:100px}
+.editor-tools .action{font-size:13px}
+.crop-note{font-size:12px;color:#666;padding:0 14px 10px}
+
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#202124;color:#fff;padding:11px 16px;border-radius:22px;z-index:40;display:none;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Pinspace</div>
+  <input id="search" class="search" type="search" placeholder="Search wallpapers..." aria-label="Search wallpapers">
+  <button id="adminLoginBtn" class="upload-label" type="button">🔐 Admin Login</button>
+  <label id="uploadLabel" class="upload-label" for="uploadInput" hidden>＋ Upload Original Quality</label>
+  <button id="adminLogoutBtn" class="upload-label" type="button" hidden>Log out</button>
+  <input id="uploadInput" type="file" accept="image/*" multiple>
+</header>
+<nav class="categories" id="categories">
+  <button class="category active" data-cat="All">All</button>
+  <button class="category" data-cat="Nature">Nature</button>
+  <button class="category" data-cat="Aesthetic">Aesthetic</button>
+  <button class="category" data-cat="Cars">Cars</button>
+  <button class="category" data-cat="Anime">Anime</button>
+  <button class="category" data-cat="Space">Space</button>
+  <button class="category" data-cat="Minimal">Minimal</button>
+  <button class="category" data-cat="My Uploads">My Uploads</button>
+</nav>
+<main id="grid" class="grid"></main>
+<div id="empty" class="empty" hidden>No wallpapers found. Try another search or upload a picture.</div>
+
+<div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="Full screen wallpaper viewer">
+  <div class="viewer-top">
+    <div id="viewerTitle" class="viewer-title"></div>
+    <div class="viewer-controls">
+      <button id="viewerDownload" class="viewer-btn">⬇ Download</button>
+      <button id="viewerClose" class="viewer-close" aria-label="Close full screen">×</button>
+    </div>
+  </div>
+  <img id="viewerImage" alt="Full screen wallpaper">
+  <div class="viewer-hint">Tap outside the picture or press Esc to close</div>
+</div>
+
+<div id="editor" class="editor" role="dialog" aria-modal="true" aria-label="Edit wallpaper">
+  <div class="editor-head">
+    <strong>Edit wallpaper</strong>
+    <div style="display:flex;gap:8px">
+      <button id="editCancel" class="action">Cancel</button>
+      <button id="editSave" class="action primary">Save edited copy</button>
+    </div>
+  </div>
+  <div class="editor-body"><canvas id="editCanvas"></canvas></div>
+  <div class="editor-tools">
+    <button id="rotateLeft" class="action">↶ Rotate</button>
+    <button id="rotateRight" class="action">↷ Rotate</button>
+    <label>Zoom <input id="editZoom" type="range" min="1" max="3" step="0.05" value="1"></label>
+    <button id="resetCrop" class="action">Reset</button>
+    <button id="deleteFromEditor" class="action delete">🗑 Delete</button>
+  </div>
+  <div class="crop-note">Crop: zoom in, then drag the image to position it. Save edited copy keeps the original and adds your edited version.</div>
+</div>
+<div id="adminModal" role="dialog" aria-modal="true" aria-label="Admin login" style="position:fixed;inset:0;z-index:50;background:#0009;display:none;align-items:center;justify-content:center;padding:18px">
+  <form id="adminForm" style="background:#fff;border-radius:18px;padding:22px;width:min(100%,380px);box-shadow:0 12px 45px #0004">
+    <h2 style="margin:0 0 8px">Pinspace Admin</h2>
+    <p style="font-size:13px;color:#666;line-height:1.5">Sign in with the admin account created in your Supabase project.</p>
+    <label style="display:block;font-size:13px;font-weight:bold;margin:12px 0 5px" for="adminEmail">Email</label>
+    <input id="adminEmail" type="email" autocomplete="username" required style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px">
+    <label style="display:block;font-size:13px;font-weight:bold;margin:12px 0 5px" for="adminPassword">Password</label>
+    <input id="adminPassword" type="password" autocomplete="current-password" required style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px">
+    <div style="display:flex;gap:8px;margin-top:16px"><button class="action" id="adminCancel" type="button">Cancel</button><button class="action primary" type="submit">Login</button></div>
+    <p style="font-size:11px;color:#777;line-height:1.5">Admin access requires backend setup. Passwords are verified by Supabase, not stored in this HTML.</p>
+  </form>
+</div>
+<div id="toast" class="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// SETUP: paste your Supabase Project URL and anon/publishable key here. Never put a service_role key in HTML.
+const SUPABASE_URL = "https://vttarzxhzbvqvtdpwosj.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_NppUUOs4OJFyd_meHbLjQw_uuC0awtx";
+const CLOUD_BUCKET = "wallpapers";
+const cloudConfigured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("PASTE_") && !!SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("PASTE_");
+const cloud = cloudConfigured && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let adminSession = null;
+const adminLoginBtn = document.getElementById("adminLoginBtn");
+const adminLogoutBtn = document.getElementById("adminLogoutBtn");
+const uploadLabel = document.getElementById("uploadLabel");
+const adminModal = document.getElementById("adminModal");
+function updateAdminUI(){const on=!!adminSession;adminLoginBtn.hidden=on;adminLogoutBtn.hidden=!on;uploadLabel.hidden=!on;}
+adminLoginBtn.onclick=()=>{if(!cloud){notify("Cloud setup is not complete. Follow the setup guide first.");return;}adminModal.style.display="flex";};
+document.getElementById("adminCancel").onclick=()=>adminModal.style.display="none";
+adminModal.addEventListener("click",e=>{if(e.target===adminModal)adminModal.style.display="none";});
+document.getElementById("adminForm").addEventListener("submit",async e=>{e.preventDefault();if(!cloud){notify("Add your Supabase settings first.");return;}const email=document.getElementById("adminEmail").value.trim(),password=document.getElementById("adminPassword").value;const btn=e.submitter;if(btn)btn.disabled=true;try{const {data,error}=await cloud.auth.signInWithPassword({email,password});if(error)throw error;adminSession=data.session;adminModal.style.display="none";document.getElementById("adminPassword").value="";updateAdminUI();notify("Admin login successful");}catch(err){notify("Login failed: "+(err.message||"check credentials and admin setup"));}finally{if(btn)btn.disabled=false;}});
+adminLogoutBtn.onclick=async()=>{if(cloud)await cloud.auth.signOut();adminSession=null;updateAdminUI();notify("Logged out");};
+if(cloud){cloud.auth.getSession().then(({data})=>{adminSession=data.session;updateAdminUI();});cloud.auth.onAuthStateChange((_event,session)=>{adminSession=session;updateAdminUI();});}
+const sampleWallpapers = [
+ {id:'s1',title:'Misty Forest',category:'Nature',src:'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=900&q=85'},
+ {id:'s2',title:'Mountain Lake',category:'Nature',src:'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=85'},
+ {id:'s3',title:'Warm Aesthetic',category:'Aesthetic',src:'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=900&q=85'},
+ {id:'s4',title:'Supercar',category:'Cars',src:'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=900&q=85'},
+ {id:'s5',title:'Night Sky',category:'Space',src:'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=900&q=85'},
+ {id:'s6',title:'Ocean Waves',category:'Nature',src:'https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=900&q=85'},
+ {id:'s7',title:'Minimal Architecture',category:'Minimal',src:'https://images.unsplash.com/photo-1511818966892-d7d671e672a2?auto=format&fit=crop&w=900&q=85'},
+ {id:'s8',title:'Pink Sky',category:'Aesthetic',src:'https://images.unsplash.com/photo-1490730141103-6cac27aaab94?auto=format&fit=crop&w=900&q=85'},
+ {id:'s9',title:'City Lights',category:'Aesthetic',src:'https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=900&q=85'},
+ {id:'s10',title:'Desert Road',category:'Nature',src:'https://images.unsplash.com/photo-1509316785289-025f5b846b35?auto=format&fit=crop&w=900&q=85'},
+ {id:'s11',title:'Classic Car',category:'Cars',src:'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=85'},
+ {id:'s12',title:'Starry Night',category:'Space',src:'https://images.unsplash.com/photo-1475274047050-1d0c0975c63e?auto=format&fit=crop&w=900&q=85'}
+];
+// Uploaded photos are stored as original Blobs in IndexedDB (avoids huge base64 copies).
+function dataURLToBlob(dataURL){
+ const parts=dataURL.split(',');const mime=(parts[0].match(/:(.*?);/)||[])[1]||'application/octet-stream';
+ const binary=atob(parts[1]||'');const bytes=new Uint8Array(binary.length);
+ for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+ return new Blob([bytes],{type:mime});
+}
+const DB_NAME='pinspace_gallery_db', DB_VERSION=1, STORE_NAME='uploads';
+let uploads=[];
+function openGalleryDB(){
+ return new Promise((resolve,reject)=>{
+  if(!('indexedDB' in window)){reject(new Error('IndexedDB unavailable'));return;}
+  const req=indexedDB.open(DB_NAME,DB_VERSION);
+  req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(STORE_NAME))db.createObjectStore(STORE_NAME,{keyPath:'id'});};
+  req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not open database'));
+ });
+}
+async function loadCloudUploads(){
+ if(!cloud)return null;
+ const {data,error}=await cloud.from("wallpapers").select("id,title,category,storage_path,original_size,mime_type,created_at").order("created_at",{ascending:false});
+ if(error){notify("Cloud gallery error: "+error.message);return [];}
+ return (data||[]).map(row=>{const {data:publicData}=cloud.storage.from(CLOUD_BUCKET).getPublicUrl(row.storage_path);return {id:row.id,title:row.title,category:row.category||"My Uploads",src:publicData.publicUrl,userUpload:true,cloudUpload:true,storagePath:row.storage_path,originalSize:row.original_size,mimeType:row.mime_type};});
+}
+async function uploadToCloud(file){
+ if(!cloud||!adminSession){notify("Please log in as admin first.");return false;}
+ const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+ const path=adminSession.user.id+"/"+Date.now()+"_"+safeName;
+ const {error:upErr}=await cloud.storage.from(CLOUD_BUCKET).upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});
+ if(upErr)throw upErr;
+ const {data,error:dbErr}=await cloud.from("wallpapers").insert({title:file.name.replace(/\.[^.]+$/,""),category:"My Uploads",storage_path:path,original_size:file.size,mime_type:file.type,uploaded_by:adminSession.user.id}).select().single();
+ if(dbErr){await cloud.storage.from(CLOUD_BUCKET).remove([path]);throw dbErr;}
+ return true;
+}
+async function deleteCloudItem(item){
+ if(!cloud||!adminSession){notify("Admin login required.");return false;}
+ const {error:dbErr}=await cloud.from("wallpapers").delete().eq("id",item.id);
+ if(dbErr)throw dbErr;
+ const {error:storageErr}=await cloud.storage.from(CLOUD_BUCKET).remove([item.storagePath]);
+ if(storageErr)notify("Metadata deleted, but storage cleanup failed: "+storageErr.message);
+ return true;
+}
+async function loadUploads(){
+ try{
+  const db=await openGalleryDB();
+  uploads=await new Promise((resolve,reject)=>{
+   const req=db.transaction(STORE_NAME,'readonly').objectStore(STORE_NAME).getAll();
+   req.onsuccess=()=>resolve(req.result||[]);
+   req.onerror=()=>reject(req.error);
+  });
+  db.close();
+  // Restore display URLs for original image Blobs saved in IndexedDB.
+  uploads=uploads.map(item=>item.blob ? {...item,src:URL.createObjectURL(item.blob)} : item);
+  // Migrate older uploads from localStorage if this IndexedDB gallery is still empty.
+  if(!uploads.length){
+   try{
+    const old=JSON.parse(localStorage.getItem('pinspace_uploads_v2')||'[]');
+    if(Array.isArray(old)&&old.length){
+     uploads=old.map(item=>item.src && item.src.startsWith('data:') ? {...item,blob:dataURLToBlob(item.src)} : item);
+     await saveUploads();
+     uploads=uploads.map(item=>item.blob ? {...item,src:URL.createObjectURL(item.blob)} : item);
+    }
+   }catch(_){}
+  }
+ }catch(e){
+  try{uploads=JSON.parse(localStorage.getItem('pinspace_uploads_v2')||'[]');if(!Array.isArray(uploads))uploads=[];}
+  catch(_){uploads=[];}
+ }
+ render();
+}
+async function saveUploads(){
+ try{
+  if(navigator.storage && navigator.storage.persist){
+   try{await navigator.storage.persist();}catch(_){}
+  }
+  const db=await openGalleryDB();
+  await new Promise((resolve,reject)=>{
+   const tx=db.transaction(STORE_NAME,'readwrite'),store=tx.objectStore(STORE_NAME);
+   store.clear();uploads.forEach(item=>store.put(item));
+   tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Storage transaction failed'));tx.onabort=()=>reject(tx.error||new Error('Storage transaction aborted'));
+  });
+  db.close();return true;
+ }catch(e){notify('Photo storage is full or unavailable. Delete some uploads or use smaller photos.');return false}
+}
+let activeCategory='All', activeViewer=null;
+const grid=document.getElementById('grid'), search=document.getElementById('search');
+const viewer=document.getElementById('viewer'), viewerImage=document.getElementById('viewerImage');
+const viewerTitle=document.getElementById('viewerTitle'), toast=document.getElementById('toast');
+// Sample wallpapers can now be deleted too; deleted sample IDs are remembered in this browser.
+const DELETED_SAMPLES_KEY='pinspace_deleted_samples_v1';
+let deletedSamples=[];
+try { deletedSamples=JSON.parse(localStorage.getItem(DELETED_SAMPLES_KEY)||'[]'); if(!Array.isArray(deletedSamples)) deletedSamples=[]; } catch(e){deletedSamples=[];}
+function saveDeletedSamples(){try{localStorage.setItem(DELETED_SAMPLES_KEY,JSON.stringify(deletedSamples));return true}catch(e){notify('Could not save deletion in browser');return false}}
+function allItems(){return [...sampleWallpapers.filter(item=>!deletedSamples.includes(item.id)),...uploads]}
+function notify(msg){toast.textContent=msg;toast.style.display='block';clearTimeout(notify.timer);notify.timer=setTimeout(()=>toast.style.display='none',2400)}
+function render(){
+ const q=search.value.trim().toLowerCase();
+ const items=allItems().filter(item=>{
+   const categoryOk=activeCategory==='All'||(activeCategory==='My Uploads'?item.userUpload:item.category===activeCategory);
+   return categoryOk && (item.title.toLowerCase().includes(q)||item.category.toLowerCase().includes(q));
+ });
+ grid.innerHTML=''; document.getElementById('empty').hidden=items.length>0;
+ items.forEach(item=>{
+   const card=document.createElement('article');card.className='card';
+   const wrap=document.createElement('div');wrap.className='image-wrap';wrap.title='Tap to view full screen';
+   const img=document.createElement('img');img.src=item.src;img.alt=item.title;img.loading='lazy';
+   img.onerror=()=>{img.classList.add('broken');img.alt='Image could not load: '+item.title;};
+   wrap.appendChild(img);wrap.addEventListener('click',()=>openViewer(item));
+   const title=document.createElement('div');title.className='card-title';title.textContent=item.title;
+   const actions=document.createElement('div');actions.className='card-actions';
+   const download=document.createElement('button');download.className='action primary';download.textContent='⬇ Download';download.onclick=()=>downloadItem(item);
+   const save=document.createElement('button');save.className='action';save.textContent='♡ Save';save.onclick=()=>{try{let saved=JSON.parse(localStorage.getItem('pinspace_saved_v1')||'[]');if(!saved.includes(item.id))saved.push(item.id);localStorage.setItem('pinspace_saved_v1',JSON.stringify(saved));notify('Wallpaper saved in this browser');}catch(e){notify('Could not save in browser');}};
+   const share=document.createElement('button');share.className='action';share.textContent='↗ Share';share.onclick=()=>shareItem(item);
+   const edit=document.createElement('button');edit.className='action';edit.textContent='✂ Edit';edit.onclick=()=>openEditor(item);
+   actions.append(download,save,share,edit);
+   if(item.userUpload && adminSession){const del=document.createElement('button');del.className='action delete';del.textContent='🗑 Delete';del.onclick=async()=>{if(!confirm('Delete this uploaded wallpaper permanently?'))return;try{if(item.cloudUpload){await deleteCloudItem(item);}else{uploads=uploads.filter(x=>x.id!==item.id);await saveUploads();}uploads=cloud?(await loadCloudUploads()||[]):uploads;render();if(activeViewer===item.id)closeViewer();notify('Wallpaper deleted');}catch(err){notify('Delete failed: '+(err.message||'check admin permissions'));}};actions.appendChild(del)}
+   card.append(wrap,title,actions);grid.appendChild(card);
+ });
+}
+function openViewer(item){activeViewer=item.id;viewerImage.src=item.src;viewerImage.alt=item.title;viewerTitle.textContent=item.title;viewer.classList.add('open');document.body.style.overflow='hidden';}
+function closeViewer(){viewer.classList.remove('open');viewerImage.src='';activeViewer=null;document.body.style.overflow='';}
+document.getElementById('viewerClose').onclick=closeViewer;
+viewer.addEventListener('click',e=>{if(e.target===viewer)closeViewer()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&viewer.classList.contains('open'))closeViewer()});
+document.getElementById('viewerDownload').onclick=()=>{const item=allItems().find(x=>x.id===activeViewer);if(item)downloadItem(item)};
+async function downloadItem(item){
+ try{
+  const res=await fetch(item.src);const blob=await res.blob();const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=(item.title||'wallpaper').replace(/[^\w\-]+/g,'_')+'.jpg';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+ }catch(e){window.open(item.src,'_blank','noopener');notify('Image opened in a new tab. Long-press it to download.')}
+}
+async function shareItem(item){
+ try{if(navigator.share){await navigator.share({title:item.title,text:'Wallpaper from Pinspace',url:item.src})}
+ else if(navigator.clipboard){await navigator.clipboard.writeText(item.src);notify('Image link copied')}
+ else {prompt('Copy this image link:',item.src)}}catch(e){}
+}
+// Store the original File/Blob directly. No resize or compression is applied.
+document.getElementById('uploadInput').addEventListener('change',async e=>{
+ const input=e.target;
+ const files=[...(input.files||[])].filter(f=>f.type.startsWith('image/'));
+ if(!files.length){notify('Please select an image file (JPG, PNG, WEBP, etc.).');input.value='';return;}
+ let added=0;
+ for(const file of files){
+  let item=null;
+  try{
+   item={
+    id:'u'+Date.now()+Math.random().toString(16).slice(2),
+    title:file.name.replace(/\.[^.]+$/,''),
+    fileName:file.name, mimeType:file.type, originalSize:file.size,
+    category:'My Uploads', blob:file, src:URL.createObjectURL(file), userUpload:true
+   };
+   uploads.unshift(item);
+   const saved=await saveUploads();
+   if(saved){added++;}
+   else{
+    uploads=uploads.filter(x=>x.id!==item.id);
+    if(item.src.startsWith('blob:'))URL.revokeObjectURL(item.src);
+    notify('Browser storage is full or blocked. Try uploading fewer images at a time, or allow storage for this site.');
+    break;
+   }
+  }catch(err){
+   if(item && item.src && item.src.startsWith('blob:'))URL.revokeObjectURL(item.src);
+   uploads=uploads.filter(x=>!item||x.id!==item.id);
+   notify('Upload failed: '+file.name+' ('+(err && err.message ? err.message : 'browser could not read this file')+').');
+  }
+ }
+ if(added){
+  activeCategory='All';
+  document.querySelectorAll('.category').forEach(b=>b.classList.toggle('active',b.dataset.cat===activeCategory));
+  render();
+  notify(added+' original-quality image(s) uploaded. No compression applied.');
+ }
+ input.value='';
+});
+document.querySelectorAll('.category').forEach(btn=>btn.addEventListener('click',()=>{activeCategory=btn.dataset.cat;document.querySelectorAll('.category').forEach(b=>b.classList.toggle('active',b===btn));render()}));
+search.addEventListener('input',render);
+
+// Simple mobile-friendly crop editor: zoom and drag the image, then export the visible crop.
+const editor=document.getElementById('editor'), canvas=document.getElementById('editCanvas'), ctx=canvas.getContext('2d');
+const zoomControl=document.getElementById('editZoom');
+let editItem=null, editImage=new Image(), editZoom=1, editRotation=0, editOffsetX=0, editOffsetY=0, dragStart=null, editBaseScale=1;
+function openEditor(item){
+ editItem=item; editZoom=1;editRotation=0;editOffsetX=0;editOffsetY=0;zoomControl.value='1';
+ editImage=new Image();editImage.crossOrigin='anonymous';
+ editImage.onload=()=>{setupCanvas();drawEditor();editor.classList.add('open');document.body.style.overflow='hidden';};
+ editImage.onerror=()=>notify('Image could not be opened for editing. Try uploading the picture first.');
+ editImage.src=item.src;
+}
+function setupCanvas(){
+ const area=editor.querySelector('.editor-body');
+ const maxW=Math.max(240,area.clientWidth-24), maxH=Math.max(240,area.clientHeight-24);
+ const ratio=Math.min(maxW/ (editRotation%180===0?editImage.naturalWidth:editImage.naturalHeight), maxH/(editRotation%180===0?editImage.naturalHeight:editImage.naturalWidth),1);
+ canvas.width=Math.max(1,Math.round((editRotation%180===0?editImage.naturalWidth:editImage.naturalHeight)*ratio));
+ canvas.height=Math.max(1,Math.round((editRotation%180===0?editImage.naturalHeight:editImage.naturalWidth)*ratio));
+ editBaseScale=ratio;
+}
+function drawEditor(){
+ if(!editImage.naturalWidth)return;
+ const area=editor.querySelector('.editor-body');
+ const maxW=Math.max(240,area.clientWidth-24),maxH=Math.max(240,area.clientHeight-24);
+ const aspect=(editRotation%180===0)?editImage.naturalWidth/editImage.naturalHeight:editImage.naturalHeight/editImage.naturalWidth;
+ let w=Math.min(maxW,maxH*aspect),h=w/aspect;if(h>maxH){h=maxH;w=h*aspect}
+ canvas.width=Math.round(w);canvas.height=Math.round(h);
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ ctx.save();ctx.translate(canvas.width/2+editOffsetX,canvas.height/2+editOffsetY);ctx.rotate(editRotation*Math.PI/180);
+ const fit=Math.min(canvas.width/editImage.naturalWidth,canvas.height/editImage.naturalHeight);
+ const scale=fit*editZoom;
+ ctx.drawImage(editImage,-editImage.naturalWidth*scale/2,-editImage.naturalHeight*scale/2,editImage.naturalWidth*scale,editImage.naturalHeight*scale);
+ ctx.restore();
+}
+zoomControl.oninput=()=>{editZoom=Number(zoomControl.value);drawEditor()};
+document.getElementById('rotateLeft').onclick=()=>{editRotation=(editRotation+270)%360;editOffsetX=editOffsetY=0;drawEditor()};
+document.getElementById('rotateRight').onclick=()=>{editRotation=(editRotation+90)%360;editOffsetX=editOffsetY=0;drawEditor()};
+document.getElementById('resetCrop').onclick=()=>{editZoom=1;editRotation=0;editOffsetX=editOffsetY=0;zoomControl.value='1';drawEditor()};
+canvas.addEventListener('pointerdown',e=>{dragStart={x:e.clientX,y:e.clientY,ox:editOffsetX,oy:editOffsetY};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!dragStart)return;editOffsetX=dragStart.ox+e.clientX-dragStart.x;editOffsetY=dragStart.oy+e.clientY-dragStart.y;drawEditor()});
+canvas.addEventListener('pointerup',()=>dragStart=null);canvas.addEventListener('pointercancel',()=>dragStart=null);
+function closeEditor(){editor.classList.remove('open');document.body.style.overflow='';editItem=null}
+document.getElementById('editCancel').onclick=closeEditor;
+document.getElementById('editSave').onclick=()=>{
+ if(!editItem)return;
+ try{
+  const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;
+  // Export the currently rendered canvas as the saved crop.
+  out.getContext('2d').drawImage(canvas,0,0);
+  const data=out.toDataURL('image/jpeg',0.92);
+  const newItem={id:'u'+Date.now()+Math.random().toString(16).slice(2),title:editItem.title+' (edited)',category:'My Uploads',src:data,userUpload:true};
+  uploads.unshift(newItem);
+  saveUploads().then(saved=>{
+   if(saved){closeEditor();activeCategory='All';document.querySelectorAll('.category').forEach(b=>b.classList.toggle('active',b.dataset.cat===activeCategory));render();notify('Edited copy saved to your gallery');}
+   else {uploads=uploads.filter(x=>x.id!==newItem.id);render();}
+  });
+ }catch(e){notify('Could not save. The image may be too large.')}
+};
+document.getElementById('deleteFromEditor').onclick=()=>{
+ if(!editItem)return;
+ if(confirm('Delete this wallpaper?')){
+   if(editItem.userUpload){uploads=uploads.filter(x=>x.id!==editItem.id);saveUploads();}
+   else {deletedSamples.push(editItem.id);saveDeletedSamples();}
+   const deletedId=editItem.id;
+   closeEditor();render();
+   if(activeViewer===deletedId)closeViewer();
+   notify('Wallpaper deleted');
+ }
+};
+window.addEventListener('resize',()=>{if(editor.classList.contains('open'))drawEditor()});
+
+loadUploads();
+</script>
+</body>
+</html>
